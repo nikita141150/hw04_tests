@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}
+  Профайл пользователя {{author.username}}
+{% endblock %}
+{% block content %}
+  {% for post in page_obj %}        
+    <h1>Все посты пользователя {{ post.author.get_full_name }} </h1>
+    <h3>Всего постов: {{author.posts.count}} </h3>   
+    <article>
+      <ul>
+        <li>
+          Автор:
+          <a href={% url 'posts:profile' post.author.username %}>{{ post.author.get_full_name }} </a>
+        </li>
+        <li>
+          Дата публикации: {{ post.pub_date|date:"d E Y" }}
+        </li>
+      </ul>
+      <p>
+        {{post.text|linebreaksbr}}
+      </p>
+      <a href= {% url 'posts:post_detail' post.pk %}> Подробная информация </a>
+    </article>
+    {% if post.group %} 
+      Группа: <a href="{% url 'posts:group_list' post.group.slug %}"> {{post.group}}</a>
+    {% endif %} 
+  {% endfor %} 
+  {% include 'posts/includes/paginator.html' %}
+{% endblock %}
