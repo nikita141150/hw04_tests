@@ -1,11 +1,16 @@
-from django.contrib.auth import get_user_model
 from django.test import TestCase, Client
-
 from http import HTTPStatus
 
-from ..models import Group, Post
+from ..models import Group, Post, User
 
-User = get_user_model()
+MAIN_PAGE = '/'
+GROUP_PAGE = '/group/test-slug/'
+PROFILE_PAGE = '/profile/auth/'
+POST_PAGE = '/posts/1/'
+POST_EDIT_PAGE = '/posts/1/edit/'
+POST_EDIT_PAGE_REDIRECT = '/auth/login/?next=/posts/1/edit/'
+CREATE_PAGE = '/create/'
+UNKNOWN_PAGE = '/unexisting_page/'
 
 
 class StaticURLTests(TestCase):
@@ -26,64 +31,40 @@ class StaticURLTests(TestCase):
     def setUp(self):
         # Создаем неавторизованный клиент
         self.guest_client = Client()
-        # Создаем пользователя
-        self.user = User.objects.create_user(username='somebody')
         # Создаем второй клиент
         self.authorized_client = Client()
         # Авторизуем пользователя
-        self.authorized_client.force_login(self.user)
-
-    def test_homepage(self):
-        # Делаем запрос к главной странице и проверяем статус
-        response = self.guest_client.get('/')
-        # Утверждаем, что для прохождения теста код должен быть равен 200
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-
-    def test_group(self):
-        # Делаем запрос к главной странице и проверяем статус
-        response = self.guest_client.get('/group/test-slug/')
-        # Утверждаем, что для прохождения теста код должен быть равен 200
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-
-    def test_profile(self):
-        response = self.guest_client.get('/profile/somebody/')
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-
-    def test_post(self):
-        response = self.guest_client.get('/posts/1/')
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-
-    def test_post_edit_authorized(self):
-        self.authorized_client = Client()
         self.authorized_client.force_login(self.author)
-        response = self.authorized_client.get('/posts/1/edit/')
-        self.assertEqual(response.status_code, HTTPStatus.OK)
 
-    def test_post_edit_none_authorized(self):
-        response = self.guest_client.get('/posts/1/edit/', follow=True)
+    def test_pages(self):
+        pages_test_guest = [MAIN_PAGE, GROUP_PAGE, PROFILE_PAGE, POST_PAGE]
+        pages_test_authorized = [POST_EDIT_PAGE, CREATE_PAGE]
+        for page in pages_test_guest:
+            self.assertEqual(self.guest_client.get(page).status_code,
+                             HTTPStatus.OK)
+        for page in pages_test_authorized:
+            self.assertEqual(self.authorized_client.get(page).status_code,
+                             HTTPStatus.OK)
+
         self.assertRedirects(
-            response, '/auth/login/?next=/posts/1/edit/'
+            self.guest_client.get(POST_EDIT_PAGE, follow=True),
+            POST_EDIT_PAGE_REDIRECT
         )
-
-    def test_post_create(self):
-        response = self.authorized_client.get('/create/')
-        self.assertEqual(response.status_code, HTTPStatus.OK)
-
-    def test_unknown_page(self):
-        response = self.guest_client.get('/unexisting_page/')
-        self.assertEqual(response.status_code, HTTPStatus.NOT_FOUND)
+        self.assertEqual(self.guest_client.get(UNKNOWN_PAGE).status_code,
+                         HTTPStatus.NOT_FOUND)
 
     def test_urls_uses_correct_template(self):
         templates_url_names = {
-            '/': 'posts/index.html',
-            '/group/test-slug/': 'posts/group_list.html',
-            '/profile/somebody/': 'posts/profile.html',
-            '/posts/1/': 'posts/post_detail.html',
-            '/create/': 'posts/create_post.html',
-            '/posts/1/edit/': 'posts/create_post.html',
+            MAIN_PAGE: 'posts/index.html',
+            GROUP_PAGE: 'posts/group_list.html',
+            PROFILE_PAGE: 'posts/profile.html',
+            POST_PAGE: 'posts/post_detail.html',
+            CREATE_PAGE: 'posts/create_post.html',
+            POST_EDIT_PAGE: 'posts/create_post.html',
         }
         for adress, template in templates_url_names.items():
-            self.authorized_client.force_login(self.author)
             with self.subTest(adress=adress):
-                response = self.authorized_client.get(adress)
-                self.assertTemplateUsed(response, template)
+                self.assertTemplateUsed(
+                    self.authorized_client.get(adress),
+                    template
+                )

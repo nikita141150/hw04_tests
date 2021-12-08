@@ -4,10 +4,11 @@ from django.shortcuts import render, get_object_or_404, redirect
 
 from .forms import PostForm
 from .models import Post, Group, User
+from .settings import PAGINATOR_PAGE_SIZE
 
 
 def pagination(request, post_list):
-    paginator = Paginator(post_list, 10)
+    paginator = Paginator(post_list, PAGINATOR_PAGE_SIZE)
     page_number = request.GET.get('page')
     return paginator.get_page(page_number)
 
