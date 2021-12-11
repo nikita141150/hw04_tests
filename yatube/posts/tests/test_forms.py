@@ -6,10 +6,7 @@ import uuid
 
 from ..models import Group, Post, User
 
-PROFILE_USER_PAGE = 'posts:profile'
-POST_CREATE_PAGE = 'posts:post_create'
-POST_EDIT_PAGE = 'posts:post_edit'
-POST_DETAIL_PAGE = 'posts:post_detail'
+CREATE_PAGE = reverse('posts:post_create')
 
 
 class PostCreateFormTests(TestCase):
@@ -41,30 +38,34 @@ class PostCreateFormTests(TestCase):
         # Авторизуем пользователя
         self.authorized_client.force_login(self.author)
 
+        self.POST_DETAIL = reverse('posts:post_detail',
+                                   kwargs={'post_id': self.post.id})
+        self.PROFILE_USER = reverse('posts:profile',
+                                    kwargs={'username': self.author.username})
+        self.EDIT_PAGE = reverse('posts:post_edit',
+                                 kwargs={'post_id': self.post.id})
+
     def test_create_post(self):
         """Валидная форма создает запись в Post."""
         count = Post.objects.count()
         unique_text = uuid.uuid4()
-        while Post.objects.filter(text=str(unique_text)).count() > 0:
-            unique_text == uuid.uuid4()
-        # Создаем множество до создания поста
         set_posts_before = set()
         for post in Post.objects.all():
-            set_posts_before.add(str(post))
+            set_posts_before.add(post.pk)
         form_data = {
             'group': self.group.id,
             'text': str(unique_text),
         }
         # Отправляем POST-запрос
         response = self.authorized_client.post(
-            reverse(POST_CREATE_PAGE),
+            CREATE_PAGE,
             data=form_data,
             follow=True
         )
         # Создаем множество после создания поста
         set_posts_after = set()
         for post in Post.objects.all():
-            set_posts_after.add(str(post))
+            set_posts_after.add(post.pk)
         # Ищем разность множеств -  результатом
         # является множество, содержащее элементы,
         # которые есть в "уменьшаемом", но их нет в "вычитаемом"
@@ -76,14 +77,18 @@ class PostCreateFormTests(TestCase):
         # Проверяем, сработал ли редирект
         self.assertRedirects(
             response,
-            reverse(PROFILE_USER_PAGE,
-                    kwargs={'username': self.author.username})
+            self.PROFILE_USER
         )
         # Проверяем, увеличилось ли число постов
         self.assertEqual(Post.objects.count(), count + 1)
         # Проверяем, что в БД есть запись c заданными атрибутами
         self.assertEqual(len(difference_set_after_add_post), 1)
         self.assertEqual(len(difference_set_before_add_post), 0)
+        # Проверяем, что в БД занесена запись с нашим текстом
+        # Вычисляем pk добавленной записи
+        for i in difference_set_after_add_post:
+            self.assertEqual(Post.objects.filter(pk=i,
+                             text=unique_text).count(), 1)
 
     def test_edit_post(self):
         """Проверка формы редактирования поста, изменение его в базе данных."""
@@ -94,55 +99,38 @@ class PostCreateFormTests(TestCase):
             'group': self.group2.id,
             'text': str(unique_text),
         }
-        # Создаем множество до изменения поста
-        set_posts_before = set()
-        for post in Post.objects.all():
-            set_posts_before.add(str(post))
+        # Находим pk изменяемой записи
+        for post in Post.objects.filter(id=self.post.id):
+            pk_post = post.pk
         # Отправляем POST-запрос
         response = self.authorized_client.post(
-            reverse(
-                POST_EDIT_PAGE,
-                kwargs={'post_id': self.post.id}),
+            self.EDIT_PAGE,
             data=form_data,
             follow=True
         )
         # Проверяем, сработал ли редирект
         self.assertRedirects(
             response,
-            reverse(POST_DETAIL_PAGE,
-                    kwargs={'post_id': self.post.id}))
-        # Создаем множество после изменения поста
-        set_posts_after = set()
-        for post in Post.objects.all():
-            set_posts_after.add(str(post))
-        # Проверяем количество постов до редактирования записи
+            self.POST_DETAIL)
+        # Проверяем количество постов после редактирования записи
         count_after_edit = Post.objects.count()
-        # Ищем разность множеств -  результатом
-        # является множество, содержащее элементы,
-        # которые есть в "уменьшаемом", но их нет в "вычитаемом"
-        difference_set_after_edit_post = set_posts_after - set_posts_before
-        # Ищем разность множеств -  результатом
-        # является множество, содержащее элементы,
-        # которые есть в "уменьшаемом", но их нет в "вычитаемом"
-        difference_set_before_edit_post = set_posts_before - set_posts_after
-        # Проверяем, изменился ли пост
+        # Проверяем, изменилось ли кол-во постов
         self.assertEqual(count_before_edit, count_after_edit)
-        self.assertEqual(len(difference_set_after_edit_post), 1)
-        self.assertEqual(len(difference_set_before_edit_post), 1)
+        # Проверяем измененную запись
+        for post_edit in Post.objects.filter(pk=pk_post):
+            self.assertEqual(post_edit.text, str(unique_text))
+            self.assertEqual(post_edit.group.id, self.group2.id)
 
     # Проверяем, что словарь context страницы posts/post_edit
     # содержит ожидаемые значения
     def test_post_edit_page_show_correct_context(self):
         """Шаблон posts/post_edit сформирован с правильным контекстом."""
-        pages = [
-            reverse(
-                POST_EDIT_PAGE,
-                kwargs={'post_id': self.post.id}),
-            reverse(
-                POST_CREATE_PAGE)
+        urls = [
+            self.EDIT_PAGE,
+            CREATE_PAGE
         ]
-        for page in pages:
-            response = self.authorized_client.get(page)
+        for url in urls:
+            response = self.authorized_client.get(url)
         # Словарь ожидаемых типов полей формы:
         # указываем, объектами какого класса должны быть поля формы
         form_fields = {

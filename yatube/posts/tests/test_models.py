@@ -15,14 +15,14 @@ class PostModelTest(TestCase):
         )
         cls.post = Post.objects.create(
             author=cls.user,
-            text='Тестовая группа',
+            text='Тестовая надпись',
         )
 
     def test_models_have_correct_object_names(self):
         group = self.group
         post = self.post
         self.assertEqual(group.title, str(group))
-        self.assertEqual(post.text, str(post)[:15])
+        self.assertEqual(post.text[:15], str(post))
 
     def test_verbose_name(self):
         """verbose_name в полях совпадает с ожидаемым."""

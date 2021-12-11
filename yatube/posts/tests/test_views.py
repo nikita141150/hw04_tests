@@ -1,14 +1,11 @@
 from django.test import Client, TestCase
 from django.urls import reverse
 
+from ..settings import PAGINATOR_PAGE_SIZE
 from ..models import Group, Post, User
 
-MAIN_PAGE = 'posts:index'
-GROUP_PAGE = 'posts:group_list'
-PROFILE_PAGE = 'posts:profile'
-POST_DETAIL_PAGE = 'posts:post_detail'
-CREATE_POST_PAGE = 'posts:post_create'
-EDIT_POST_PAGE = 'posts:post_edit'
+MAIN_URL = reverse('posts:index')
+CREATE_URL = reverse('posts:post_create')
 
 
 class ViewsTests(TestCase):
@@ -28,97 +25,72 @@ class ViewsTests(TestCase):
         )
         cls.post = Post.objects.create(
             author=cls.author,
-            text='Текст ТЕСТОВЫЙ',
+            text='Тестовая запись',
             group=cls.group
         )
 
     def setUp(self):
-        # Создаем неавторизованный клиент
         self.guest_client = Client()
-        # Создаем пользователя
-        # Создаем второй клиент
         self.authorized_client = Client()
-        # Авторизуем пользователя
         self.authorized_client.force_login(self.author)
-
-    def test_pages_uses_correct_template(self):
-        """URL-адрес использует соответствующий шаблон."""
-        # Собираем в словарь пары "reverse(name):имя_html_шаблона"
-        templates_pages_names = {
-            reverse(
-                MAIN_PAGE
-            ): 'posts/index.html',
-            reverse(
-                GROUP_PAGE,
-                kwargs={'slug': self.group.slug}
-            ): 'posts/group_list.html',
-            reverse(
-                PROFILE_PAGE,
-                kwargs={'username': self.author.username}
-            ): 'posts/profile.html',
-            reverse(
-                POST_DETAIL_PAGE,
-                kwargs={'post_id': self.post.id}
-            ): 'posts/post_detail.html',
-            reverse(
-                CREATE_POST_PAGE,
-            ): 'posts/create_post.html',
-            reverse(
-                EDIT_POST_PAGE,
-                kwargs={
-                    'post_id': self.post.id}
-            ): 'posts/create_post.html'
-        }
-        # Проверяем, что при обращении к name вызывается соответствующий шаблон
-        for reverse_name, template in templates_pages_names.items():
-            with self.subTest(reverse_name=reverse_name):
-                response = self.authorized_client.get(reverse_name)
-                self.assertTemplateUsed(response, template)
+        # Урлы через маршруты
+        self.POST_DETAIL = reverse('posts:post_detail',
+                                   kwargs={'post_id': self.post.id})
+        self.PROFILE_USER = reverse('posts:profile',
+                                    kwargs={'username': self.author.username})
+        self.EDIT_PAGE = reverse('posts:post_edit',
+                                 kwargs={'post_id': self.post.id})
+        self.GROUP_URL = reverse('posts:group_list',
+                                 kwargs={'slug': self.group.slug})
+        self.GROUP_2_URL = reverse('posts:group_list',
+                                   kwargs={'slug': self.group2.slug})
+        self.PROFILE_URL = reverse('posts:profile',
+                                   kwargs={'username': self.author.username})
+        self.POST_DETAIL_URL = reverse('posts:post_detail',
+                                       kwargs={'post_id': self.post.id})
+        self.POST_EDIT_URL = reverse('posts:post_edit',
+                                     kwargs={'post_id': self.post.id})
 
     # Проверяем, что словарь страниц
     # содержит ожидаемые значения
     def test_page_show_correct_context(self):
-        pages = {
-            reverse(
-                PROFILE_PAGE,
-                kwargs={'username': self.author.username}
-            ): 'page_obj',
-            reverse(
-                MAIN_PAGE
-            ): 'page_obj',
-            reverse(
-                GROUP_PAGE,
-                kwargs={'slug': self.group.slug}
-            ): 'page_obj',
-            reverse(
-                POST_DETAIL_PAGE,
-                kwargs={'post_id': self.post.id}
-            ): 'post',
+        urls = {
+            MAIN_URL: 'page_obj',
+            self.GROUP_URL: 'page_obj',
+            self.PROFILE_URL: 'page_obj',
+            self.POST_DETAIL_URL: 'post',
         }
-        for reverse_name, context in pages.items():
-            with self.subTest(reverse_name=reverse_name):
-                response = self.authorized_client.get(reverse_name)
-                if Post.objects.count() == 1 and context != 'post':
-                    first_object = response.context[context][0]
-                else:
-                    first_object = response.context['post']
-                self.assertEqual(first_object.text, self.post.text)
-                self.assertEqual(first_object.author.username,
-                                 self.post.author.username)
-                self.assertEqual(first_object.group.title, self.group.title)
+        for url, context in urls.items():
+            response = self.authorized_client.get(url)
+            if context == 'page_obj':
+                post_object = response.context[context][0]
+            elif context == 'post':
+                post_object = response.context[context]
+            self.assertEqual(Post.objects.count(), 1)
+            self.assertEqual(post_object.pk, self.post.pk)
+            self.assertEqual(post_object.text, self.post.text)
+            self.assertEqual(post_object.author, self.post.author)
+            self.assertEqual(post_object.group.title, self.group.title)
 
     # После публикации поста новая запись появляется на главной
     # странице сайта (index), на персональной странице пользователя (profile),
     # и на отдельной странице поста (post)
     def test_post_appears_on_pages(self):
-        page_group2 = reverse(
-            GROUP_PAGE,
-            kwargs={'slug': self.group2.slug})
-        with self.subTest(page_group2=page_group2):
-            response_group2 = self.authorized_client.get(page_group2)
-            self.assertNotIn(
-                self.post.text,
-                response_group2.context['page_obj'])
+        urls = [
+            MAIN_URL,
+            self.GROUP_URL,
+            self.PROFILE_URL
+        ]
+        for url in urls:
+            with self.subTest(url=url):
+                response = self.authorized_client.get(url)
+                self.assertEqual(response.context['page_obj'][0].text,
+                                 'Тестовая запись')
+                self.assertEqual(response.context['page_obj'][0].group.id,
+                                 self.group.id)
+        self.assertNotIn(
+            self.post, self.authorized_client.get(self.GROUP_2_URL).
+            context.get('page_obj').object_list)
 
 
 class PaginatorViewsTests(TestCase):
@@ -142,44 +114,24 @@ class PaginatorViewsTests(TestCase):
         cls.post = Post.objects.bulk_create(posts)
 
     def setUp(self):
-        # Создаем неавторизованный клиент
         self.guest_client = Client()
-        # Создаем второй клиент
         self.authorized_client = Client()
-        # Авторизуем пользователя
         self.authorized_client.force_login(self.author)
+        self.GROUP_URL = reverse('posts:group_list',
+                                 kwargs={'slug': self.group.slug})
+        self.PROFILE_URL = reverse('posts:profile',
+                                   kwargs={'username': self.author.username})
 
-    def test_first_page_contains_ten_records(self):
-        pages = [
-            reverse(MAIN_PAGE),
-            reverse(
-                GROUP_PAGE,
-                kwargs={'slug': PaginatorViewsTests.group.slug}
-            ),
-            reverse(
-                PROFILE_PAGE,
-                kwargs={'username': PaginatorViewsTests.author.username}
-            )
+    def test_page_contains_records(self):
+        urls = [
+            MAIN_URL,
+            self.GROUP_URL,
+            self.PROFILE_URL
         ]
-        for page in pages:
-            with self.subTest(page=page):
-                response = self.authorized_client.get(page)
-                self.assertEqual(len(response.context['page_obj']), 10)
-
-    def test_second_page_contains_three_records(self):
-        # Проверка: на второй странице должно быть три поста.
-        pages = [
-            reverse(MAIN_PAGE),
-            reverse(
-                GROUP_PAGE,
-                kwargs={'slug': PaginatorViewsTests.group.slug}
-            ),
-            reverse(
-                PROFILE_PAGE,
-                kwargs={'username': PaginatorViewsTests.author.username}
-            )
-        ]
-        for page in pages:
-            with self.subTest(page=page):
-                response = self.authorized_client.get(page + '?page=2')
+        for url in urls:
+            with self.subTest(url=url):
+                response = self.authorized_client.get(url)
+                self.assertEqual(len(response.context['page_obj']),
+                                 PAGINATOR_PAGE_SIZE)
+                response = self.authorized_client.get(url + '?page=2')
                 self.assertEqual(len(response.context['page_obj']), 3)
