@@ -59,18 +59,31 @@ class PostCreateFormTests(TestCase):
             follow=True
         )
         # Получаем последний созданный объект
-        post = Post.objects.order_by('-pub_date')[0]
-
+        set_posts_after = set()
+        for post in Post.objects.all():
+            set_posts_after.add(post.pk)
         # Проверяем, сработал ли редирект
         self.assertRedirects(
             response,
             PROFILE_USER
         )
+        # Ищем разность множеств -  результатом
+        # является множество, содержащее элементы,
+        # которые есть в "уменьшаемом", но их нет в "вычитаемом"
+        difference_set_after_add_post = set_posts_after - set_posts_before
+        pk_post = list(difference_set_after_add_post)[0]
+        post = Post.objects.get(pk=pk_post)
+        # Ищем разность множеств -  результатом
+        # является множество, содержащее элементы,
+        # которые есть в "уменьшаемом", но их нет в "вычитаемом"
+        difference_set_before_add_post = set_posts_before - set_posts_after
         # Проверяем, увеличилось ли число постов
         self.assertEqual(Post.objects.count(), count + 1)
+        self.assertEqual(len(difference_set_after_add_post), 1)
+        self.assertEqual(len(difference_set_before_add_post), 0)
         self.assertEqual(post.author, self.author)
-        self.assertEqual(post.text, 'Любой текст')
-        self.assertEqual(post.group.slug, self.group.slug)
+        self.assertEqual(post.text, form_data['text'])
+        self.assertEqual(post.group.id, form_data['group'])
 
     def test_edit_post(self):
         """Проверка формы редактирования поста, изменение его в базе данных."""
@@ -96,9 +109,9 @@ class PostCreateFormTests(TestCase):
         # Проверяем, изменилось ли кол-во постов
         self.assertEqual(count_before_edit, count_after_edit)
         # Проверяем измененную запись
-        self.assertEqual(post.text, 'Измененный текст')
+        self.assertEqual(post.text, form_data['text'])
         self.assertEqual(post.author, self.post.author)
-        self.assertEqual(post.group, self.group2)
+        self.assertEqual(post.group.id, form_data['group'])
 
     # Проверяем, что словарь context страницы posts/post_edit
     # содержит ожидаемые значения
@@ -108,14 +121,14 @@ class PostCreateFormTests(TestCase):
             self.EDIT_PAGE,
             CREATION_URL
         ]
+        form_fields = {
+            'text': forms.fields.CharField,
+            'group': forms.fields.ChoiceField,
+        }
         for url in urls:
             response = self.authorized_client.get(url)
             # Словарь ожидаемых типов полей формы:
             # указываем, объектами какого класса должны быть поля формы
-            form_fields = {
-                'text': forms.fields.CharField,
-                'group': forms.fields.ChoiceField,
-            }
             for value, expected in form_fields.items():
                 with self.subTest(value=value):
                     form_field = response.context['form'].fields[value]

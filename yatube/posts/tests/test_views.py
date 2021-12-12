@@ -56,8 +56,9 @@ class ViewsTests(TestCase):
         for url, context in urls.items():
             response = self.authorized_client.get(url)
             if context == 'page_obj':
-                if len(response.context[context].object_list) == 1:
-                    post = response.context[context][0]
+                self.assertEqual(len(response.context[context].object_list),
+                                 1)
+                post = response.context[context][0]
             elif context == 'post':
                 post = response.context[context]
             self.assertEqual(post.pk, self.post.pk)
@@ -65,16 +66,19 @@ class ViewsTests(TestCase):
             self.assertEqual(post.author, self.post.author)
             self.assertEqual(post.group.slug, self.group.slug)
 
-    # После публикации поста новая запись появляется на главной
-    # странице сайта (index), на персональной странице пользователя (profile),
-    # и на отдельной странице поста (post)
-    def test_post_appears_on_pages(self):
-        self.assertEqual(self.post.author,
+    def test_appears_on_page_author(self):
+        self.assertEqual(self.author,
                          self.authorized_client.get(PROFILE_URL).context.get
                          ('author'))
-        self.assertEqual(self.post.group,
-                         self.authorized_client.get(GROUP_URL).context.get
-                         ('group'))
+
+    def test_appears_on_page_group(self):
+        group = self.authorized_client.get(GROUP_URL).context.get('group')
+        self.assertEqual(self.group.title, group.title)
+        self.assertEqual(self.group.id, group.id)
+        self.assertEqual(self.group.slug, group.slug)
+        self.assertEqual(self.group.description, group.description)
+
+    def test_not_appears_on_page_group2(self):
         self.assertNotIn(
             self.post, self.authorized_client.get(GROUP_2_URL).
             context.get('page_obj'))
@@ -94,7 +98,6 @@ class PaginatorViewsTests(TestCase):
             Post(
                 author=cls.author,
                 text='Тестовый пост',
-                id=make_post,
                 group=cls.group,)
             for make_post in range(PAGINATOR_PAGE_SIZE + 5)
         ]
@@ -110,17 +113,12 @@ class PaginatorViewsTests(TestCase):
             [MAIN_URL, PAGINATOR_PAGE_SIZE],
             [GROUP_URL, PAGINATOR_PAGE_SIZE],
             [PROFILE_URL, PAGINATOR_PAGE_SIZE],
-            [MAIN_URL, 5],
-            [GROUP_URL, 5],
-            [PROFILE_URL, 5]
+            [MAIN_URL + '?page=2', 5],
+            [GROUP_URL + '?page=2', 5],
+            [PROFILE_URL + '?page=2', 5]
         ]
         for url, page_size in urls:
             with self.subTest(url=url):
                 response = self.authorized_client.get(url)
-                response_page_2 = self.authorized_client.get(url + '?page=2')
-                if page_size == PAGINATOR_PAGE_SIZE:
-                    self.assertEqual(len(response.context['page_obj']),
-                                     page_size)
-                else:
-                    self.assertEqual(len(response_page_2.context['page_obj']),
-                                     page_size)
+                self.assertEqual(len(response.context['page_obj']),
+                                 page_size)

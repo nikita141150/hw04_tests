@@ -17,6 +17,7 @@ class StaticURLTests(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls.new_user = User.objects.create_user(username='somebody')
         cls.author = User.objects.create_user(username='auth')
         cls.group = Group.objects.create(
             title='Тестовая группа',
@@ -36,24 +37,24 @@ class StaticURLTests(TestCase):
         self.guest = Client()
         self.authorized = Client()
         self.authorized.force_login(self.author)
+        self.another = Client()
+        self.another.force_login(self.new_user)
 
     def test_urls_show_correct_status(self):
         cases = [
-            [MAIN_URL, self.guest, HTTPStatus.OK, '', ''],
-            [GROUP_URL, self.guest, HTTPStatus.OK, '', ''],
-            [PROFILE_URL, self.guest, HTTPStatus.OK, '', ''],
-            [self.POST_DETAIL_URL, self.guest, HTTPStatus.OK, '', ''],
-            [self.POST_EDIT_URL, self.authorized, HTTPStatus.OK,
-                self.guest, HTTPStatus.FOUND],
-            [CREATE_URL, self.authorized, HTTPStatus.OK,
-                self.guest, HTTPStatus.FOUND],
-            [UNKNOWN_URL, self.guest, HTTPStatus.NOT_FOUND, '', '']
+            [MAIN_URL, self.guest, HTTPStatus.OK],
+            [GROUP_URL, self.guest, HTTPStatus.OK],
+            [PROFILE_URL, self.guest, HTTPStatus.OK],
+            [self.POST_DETAIL_URL, self.guest, HTTPStatus.OK],
+            [self.POST_EDIT_URL, self.authorized, HTTPStatus.OK],
+            [self.POST_EDIT_URL, self.guest, HTTPStatus.FOUND],
+            [self.POST_EDIT_URL, self.another, HTTPStatus.FOUND],
+            [CREATE_URL, self.authorized, HTTPStatus.OK],
+            [CREATE_URL, self.guest, HTTPStatus.FOUND],
+            [UNKNOWN_URL, self.guest, HTTPStatus.NOT_FOUND]
         ]
-        for url, client, code, redirect_client, code_redirect in cases:
+        for url, client, code in cases:
             self.assertEqual(client.get(url).status_code, code)
-            if redirect_client == self.guest:
-                self.assertEqual(redirect_client.get(url).status_code,
-                                 code_redirect)
 
     def test_urls_uses_correct_template(self):
         templates_url_names = {
@@ -72,19 +73,20 @@ class StaticURLTests(TestCase):
                 )
 
     def test_urls_make_correct_redirect(self):
-        self.guest = Client()
-        url_redirect = 'users:login'
-        urls = [CREATE_URL, self.POST_EDIT_URL]
-        self.new_user = User.objects.create_user(username='somebody')
-        self.another = Client()
-        self.another.force_login(self.new_user)
-        for url in urls:
-            redirect_url = reverse(url_redirect) + '?next=' + str(url)
-            self.assertRedirects(
-                self.guest.get(url, follow=True),
-                redirect_url
-            )
-        self.assertRedirects(
-            self.another.get(self.POST_EDIT_URL, follow=True),
-            self.POST_DETAIL_URL
-        )
+        redirect_url = reverse('users:login') + '?next='
+        urls = [
+            [CREATE_URL, self.guest],
+            [self.POST_EDIT_URL, self.guest],
+            [self.POST_EDIT_URL, self.another],
+        ]
+        for url, redirect_client in urls:
+            if redirect_client == self.guest:
+                self.assertRedirects(
+                    redirect_client.get(url, follow=True),
+                    redirect_url + str(url)
+                )
+            elif redirect_client == self.another:
+                self.assertRedirects(
+                    redirect_client.get(self.POST_EDIT_URL, follow=True),
+                    self.POST_DETAIL_URL
+                )
