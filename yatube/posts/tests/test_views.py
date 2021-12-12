@@ -6,6 +6,12 @@ from ..models import Group, Post, User
 
 MAIN_URL = reverse('posts:index')
 CREATE_URL = reverse('posts:post_create')
+GROUP_URL = reverse('posts:group_list',
+                    kwargs={'slug': 'test-slug'})
+GROUP_2_URL = reverse('posts:group_list',
+                      kwargs={'slug': 'test-slug2'})
+PROFILE_URL = reverse('posts:profile',
+                      kwargs={'username': 'auth'})
 
 
 class ViewsTests(TestCase):
@@ -28,69 +34,50 @@ class ViewsTests(TestCase):
             text='Тестовая запись',
             group=cls.group
         )
+        cls.POST_DETAIL_URL = reverse('posts:post_detail',
+                                      kwargs={'post_id': cls.post.id})
+        cls.POST_EDIT_URL = reverse('posts:post_edit',
+                                    kwargs={'post_id': cls.post.id})
 
     def setUp(self):
         self.guest_client = Client()
         self.authorized_client = Client()
         self.authorized_client.force_login(self.author)
-        # Урлы через маршруты
-        self.POST_DETAIL = reverse('posts:post_detail',
-                                   kwargs={'post_id': self.post.id})
-        self.PROFILE_USER = reverse('posts:profile',
-                                    kwargs={'username': self.author.username})
-        self.EDIT_PAGE = reverse('posts:post_edit',
-                                 kwargs={'post_id': self.post.id})
-        self.GROUP_URL = reverse('posts:group_list',
-                                 kwargs={'slug': self.group.slug})
-        self.GROUP_2_URL = reverse('posts:group_list',
-                                   kwargs={'slug': self.group2.slug})
-        self.PROFILE_URL = reverse('posts:profile',
-                                   kwargs={'username': self.author.username})
-        self.POST_DETAIL_URL = reverse('posts:post_detail',
-                                       kwargs={'post_id': self.post.id})
-        self.POST_EDIT_URL = reverse('posts:post_edit',
-                                     kwargs={'post_id': self.post.id})
 
     # Проверяем, что словарь страниц
     # содержит ожидаемые значения
     def test_page_show_correct_context(self):
         urls = {
             MAIN_URL: 'page_obj',
-            self.GROUP_URL: 'page_obj',
-            self.PROFILE_URL: 'page_obj',
+            GROUP_URL: 'page_obj',
+            PROFILE_URL: 'page_obj',
             self.POST_DETAIL_URL: 'post',
         }
         for url, context in urls.items():
             response = self.authorized_client.get(url)
             if context == 'page_obj':
-                post_object = response.context[context][0]
+                if len(response.context[context].object_list) == 1:
+                    post = response.context[context][0]
             elif context == 'post':
-                post_object = response.context[context]
-            self.assertEqual(Post.objects.count(), 1)
-            self.assertEqual(post_object.pk, self.post.pk)
-            self.assertEqual(post_object.text, self.post.text)
-            self.assertEqual(post_object.author, self.post.author)
-            self.assertEqual(post_object.group.title, self.group.title)
+                post = response.context[context]
+            self.assertEqual(post.pk, self.post.pk)
+            self.assertEqual(post.text, self.post.text)
+            self.assertEqual(post.author, self.post.author)
+            self.assertEqual(post.group.slug, self.group.slug)
 
     # После публикации поста новая запись появляется на главной
     # странице сайта (index), на персональной странице пользователя (profile),
     # и на отдельной странице поста (post)
     def test_post_appears_on_pages(self):
-        urls = [
-            MAIN_URL,
-            self.GROUP_URL,
-            self.PROFILE_URL
-        ]
-        for url in urls:
-            with self.subTest(url=url):
-                response = self.authorized_client.get(url)
-                self.assertEqual(response.context['page_obj'][0].text,
-                                 'Тестовая запись')
-                self.assertEqual(response.context['page_obj'][0].group.id,
-                                 self.group.id)
+        self.assertEqual(self.post.author,
+                         self.authorized_client.get(PROFILE_URL).context.get
+                         ('author'))
+        self.assertEqual(self.post.group,
+                         self.authorized_client.get(GROUP_URL).context.get
+                         ('group'))
         self.assertNotIn(
-            self.post, self.authorized_client.get(self.GROUP_2_URL).
-            context.get('page_obj').object_list)
+            self.post, self.authorized_client.get(GROUP_2_URL).
+            context.get('page_obj'))
 
 
 class PaginatorViewsTests(TestCase):
@@ -109,7 +96,7 @@ class PaginatorViewsTests(TestCase):
                 text='Тестовый пост',
                 id=make_post,
                 group=cls.group,)
-            for make_post in range(1, 14)
+            for make_post in range(PAGINATOR_PAGE_SIZE + 5)
         ]
         cls.post = Post.objects.bulk_create(posts)
 
@@ -117,21 +104,23 @@ class PaginatorViewsTests(TestCase):
         self.guest_client = Client()
         self.authorized_client = Client()
         self.authorized_client.force_login(self.author)
-        self.GROUP_URL = reverse('posts:group_list',
-                                 kwargs={'slug': self.group.slug})
-        self.PROFILE_URL = reverse('posts:profile',
-                                   kwargs={'username': self.author.username})
 
     def test_page_contains_records(self):
         urls = [
-            MAIN_URL,
-            self.GROUP_URL,
-            self.PROFILE_URL
+            [MAIN_URL, PAGINATOR_PAGE_SIZE],
+            [GROUP_URL, PAGINATOR_PAGE_SIZE],
+            [PROFILE_URL, PAGINATOR_PAGE_SIZE],
+            [MAIN_URL, 5],
+            [GROUP_URL, 5],
+            [PROFILE_URL, 5]
         ]
-        for url in urls:
+        for url, page_size in urls:
             with self.subTest(url=url):
                 response = self.authorized_client.get(url)
-                self.assertEqual(len(response.context['page_obj']),
-                                 PAGINATOR_PAGE_SIZE)
-                response = self.authorized_client.get(url + '?page=2')
-                self.assertEqual(len(response.context['page_obj']), 3)
+                response_page_2 = self.authorized_client.get(url + '?page=2')
+                if page_size == PAGINATOR_PAGE_SIZE:
+                    self.assertEqual(len(response.context['page_obj']),
+                                     page_size)
+                else:
+                    self.assertEqual(len(response_page_2.context['page_obj']),
+                                     page_size)

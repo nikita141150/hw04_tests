@@ -2,11 +2,11 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django import forms
 
-import uuid
-
 from ..models import Group, Post, User
 
-CREATE_PAGE = reverse('posts:post_create')
+CREATION_URL = reverse('posts:post_create')
+PROFILE_USER = reverse('posts:profile',
+                       kwargs={'username': 'auth'})
 
 
 class PostCreateFormTests(TestCase):
@@ -29,6 +29,10 @@ class PostCreateFormTests(TestCase):
             text='Текст ТЕСТОВЫЙ',
             group=cls.group
         )
+        cls.POST_DETAIL = reverse('posts:post_detail',
+                                  kwargs={'post_id': cls.post.id})
+        cls.EDIT_PAGE = reverse('posts:post_edit',
+                                kwargs={'post_id': cls.post.id})
 
     def setUp(self):
         # Создаем неавторизованный клиент
@@ -38,76 +42,51 @@ class PostCreateFormTests(TestCase):
         # Авторизуем пользователя
         self.authorized_client.force_login(self.author)
 
-        self.POST_DETAIL = reverse('posts:post_detail',
-                                   kwargs={'post_id': self.post.id})
-        self.PROFILE_USER = reverse('posts:profile',
-                                    kwargs={'username': self.author.username})
-        self.EDIT_PAGE = reverse('posts:post_edit',
-                                 kwargs={'post_id': self.post.id})
-
     def test_create_post(self):
         """Валидная форма создает запись в Post."""
         count = Post.objects.count()
-        unique_text = uuid.uuid4()
         set_posts_before = set()
         for post in Post.objects.all():
             set_posts_before.add(post.pk)
         form_data = {
             'group': self.group.id,
-            'text': str(unique_text),
+            'text': 'Любой текст',
         }
         # Отправляем POST-запрос
         response = self.authorized_client.post(
-            CREATE_PAGE,
+            CREATION_URL,
             data=form_data,
             follow=True
         )
-        # Создаем множество после создания поста
-        set_posts_after = set()
-        for post in Post.objects.all():
-            set_posts_after.add(post.pk)
-        # Ищем разность множеств -  результатом
-        # является множество, содержащее элементы,
-        # которые есть в "уменьшаемом", но их нет в "вычитаемом"
-        difference_set_after_add_post = set_posts_after - set_posts_before
-        # Ищем разность множеств -  результатом
-        # является множество, содержащее элементы,
-        # которые есть в "уменьшаемом", но их нет в "вычитаемом"
-        difference_set_before_add_post = set_posts_before - set_posts_after
+        # Получаем последний созданный объект
+        post = Post.objects.order_by('-pub_date')[0]
+
         # Проверяем, сработал ли редирект
         self.assertRedirects(
             response,
-            self.PROFILE_USER
+            PROFILE_USER
         )
         # Проверяем, увеличилось ли число постов
         self.assertEqual(Post.objects.count(), count + 1)
-        # Проверяем, что в БД есть запись c заданными атрибутами
-        self.assertEqual(len(difference_set_after_add_post), 1)
-        self.assertEqual(len(difference_set_before_add_post), 0)
-        # Проверяем, что в БД занесена запись с нашим текстом
-        # Вычисляем pk добавленной записи
-        for i in difference_set_after_add_post:
-            self.assertEqual(Post.objects.filter(pk=i,
-                             text=unique_text).count(), 1)
+        self.assertEqual(post.author, self.author)
+        self.assertEqual(post.text, 'Любой текст')
+        self.assertEqual(post.group.slug, self.group.slug)
 
     def test_edit_post(self):
         """Проверка формы редактирования поста, изменение его в базе данных."""
         # Проверяем количество постов до редактирования записи
         count_before_edit = Post.objects.count()
-        unique_text = uuid.uuid4()
         form_data = {
             'group': self.group2.id,
-            'text': str(unique_text),
+            'text': 'Измененный текст',
         }
-        # Находим pk изменяемой записи
-        for post in Post.objects.filter(id=self.post.id):
-            pk_post = post.pk
         # Отправляем POST-запрос
         response = self.authorized_client.post(
             self.EDIT_PAGE,
             data=form_data,
             follow=True
         )
+        post = response.context['post']
         # Проверяем, сработал ли редирект
         self.assertRedirects(
             response,
@@ -117,9 +96,9 @@ class PostCreateFormTests(TestCase):
         # Проверяем, изменилось ли кол-во постов
         self.assertEqual(count_before_edit, count_after_edit)
         # Проверяем измененную запись
-        for post_edit in Post.objects.filter(pk=pk_post):
-            self.assertEqual(post_edit.text, str(unique_text))
-            self.assertEqual(post_edit.group.id, self.group2.id)
+        self.assertEqual(post.text, 'Измененный текст')
+        self.assertEqual(post.author, self.post.author)
+        self.assertEqual(post.group, self.group2)
 
     # Проверяем, что словарь context страницы posts/post_edit
     # содержит ожидаемые значения
@@ -127,17 +106,17 @@ class PostCreateFormTests(TestCase):
         """Шаблон posts/post_edit сформирован с правильным контекстом."""
         urls = [
             self.EDIT_PAGE,
-            CREATE_PAGE
+            CREATION_URL
         ]
         for url in urls:
             response = self.authorized_client.get(url)
-        # Словарь ожидаемых типов полей формы:
-        # указываем, объектами какого класса должны быть поля формы
-        form_fields = {
-            'text': forms.fields.CharField,
-            'group': forms.fields.ChoiceField,
-        }
-        for value, expected in form_fields.items():
-            with self.subTest(value=value):
-                form_field = response.context['form'].fields[value]
-                self.assertIsInstance(form_field, expected)
+            # Словарь ожидаемых типов полей формы:
+            # указываем, объектами какого класса должны быть поля формы
+            form_fields = {
+                'text': forms.fields.CharField,
+                'group': forms.fields.ChoiceField,
+            }
+            for value, expected in form_fields.items():
+                with self.subTest(value=value):
+                    form_field = response.context['form'].fields[value]
+                    self.assertIsInstance(form_field, expected)
